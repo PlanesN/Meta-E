@@ -42,59 +42,74 @@ python3 app.py
 
 Abrir en navegador: `http://127.0.0.1:5050`
 
-## Despliegue con Docker y Traefik en Ubuntu Server
+## Despliegue en Ubuntu Server (con Docker, Traefik y Matrix existentes)
 
-### Consideraciones previas
-1. **Pausar Nginx/Apache:** Si tenías Nginx u otro servidor web, detenlo para liberar los puertos 80 y 443 a Traefik.
-   ```bash
-   sudo systemctl stop nginx
-   sudo systemctl disable nginx
-   ```
-2. **Firewall (UFW):** Asegúrate de tener los puertos 80 y 443 abiertos para Traefik.
-   ```bash
-   sudo ufw allow 80
-   sudo ufw allow 443
-   sudo ufw reload
-   ```
-3. **Red de Docker:** El contenedor debe estar en la misma red de Docker que tu Traefik principal (`traefik-net` en el ejemplo).
+Dado que en tu servidor ya cuentas con Traefik, Matrix y Docker, el proceso es mucho más ágil pues no requieres configurar Nginx ni puertos.
 
-### 1) Subir proyecto al servidor
+### 1) Preparar y subir el proyecto al servidor
 
-Ejemplo en `/opt/metadata-extractor`.
+Antes de subirlo, crea un archivo `.zip` de tu proyecto evitando copiar entornos virtuales:
 
 ```bash
-sudo mkdir -p /opt/metadata-extractor
-sudo chown -R $USER:$USER /opt/metadata-extractor
-cd /opt/metadata-extractor
-# copiar o clonar tu proyecto aquí
+# Comprime la carpeta omitiendo git y venv
+zip -r meta-e.zip Meta-E/ -x "Meta-E/venv/*" "Meta-E/.*" "Meta-E/.git/*" "Meta-E/__pycache__/*"
 ```
 
-### 2) Configurar variables y entorno
-Copia el archivo de ejemplo:
+Súbelo a tu servidor Ubuntu usando `scp`:
+
 ```bash
-cd /opt/metadata-extractor
+scp meta-e.zip usuario@IP_DEL_SERVIDOR:/home/usuario/
+```
+
+### 2) Extraer en el servidor
+
+Conéctate por SSH a tu servidor y descomprime el archivo:
+
+```bash
+ssh usuario@IP_DEL_SERVIDOR
+unzip meta-e.zip -d meta-e
+cd meta-e
+```
+
+### 3) Ajustar `docker-compose.yml`
+
+Abre tu archivo y ajústalo para que se integre con tu Traefik:
+
+```bash
+nano docker-compose.yml
+```
+
+Debes hacer que coincida exactamente con tu servidor:
+1. **Red de Traefik:** Busca `traefik-net` bajo la directiva `networks:` (al fondo del archivo) y reemplázalo por el **mismo nombre de la red** donde corren Traefik y Matrix (ej. `proxy`, `web`, `matrix_default`, etc).
+2. **Dominio:** En `traefik.http.routers.metadata.rule`, cambia ``Host(`meta.mexicosadecv.com.mx`)`` por tu subdominio real.
+3. **Certresolver SSL:** En la etiqueta `certresolver=myresolver`, cambia `myresolver` por el nombre de tu resolver configurado en el Traefik de tu Ubuntu (normalmente es `letsencrypt` o `le`).
+
+Guarda y cierra (`Ctrl+O`, `Enter`, `Ctrl+X`).
+
+### 4) Configurar variables de entorno locales
+
+Asegúrate de preparar tu archivo `.env` para que defina los tiempos de espera y vinculaciones de puerto:
+
+```bash
 cp .env.example .env
 ```
-Recuerda ajustar en tu `docker-compose.yml`:
-- El dominio: `Host(\`threema.mexicosadecv.com.mx\`)`
-- El resolver TLS: `certresolver=myresolver`
-- La red (`traefik-net`) según cómo se llame la red de tu Traefik principal.
+(Edita `.env` con `nano .env` si requieres modificar credenciales internas de la API en el futuro).
 
-### 3) Levantar el contenedor
+### 5) Construir y levantar el contenedor
 
-Usa Docker Compose para construir y levantar el servicio:
+Ejecuta Compose para que construya la imagen (con las dependencias de ExifTool de Ubuntu/Debian) y registre el servicio en Traefik:
+
 ```bash
 docker compose up -d --build
 ```
 
-### 4) Verificar logs
+### 6) Verificar logs de Gunicorn
 
-Puedes monitorear que Gunicorn y ExifTool estén respondiendo correctamente:
+Monitorea que la app arranque sin errores de dependencias y que Traefik la haya reconocido:
+
 ```bash
 docker compose logs -f
 ```
+*(Para salir pulsa `Ctrl+C`)*. 
 
-## Notas
-
-- No subas `.env` al repositorio.
-- La carpeta `deploy/` original (nginx y systemd) ya no es necesaria y puedes eliminarla con seguridad.
+¡Listo! Ingresa a tu subdominio en el navegador. Traefik enrutará todo al puerto interno `8000` del contenedor.
