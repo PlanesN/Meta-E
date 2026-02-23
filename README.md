@@ -48,36 +48,36 @@ Dado que en tu servidor ya cuentas con Traefik, Matrix y Docker, el proceso es m
 
 ### 1) Preparar y subir el proyecto al servidor
 
-Aunque podrías copiar carpeta por carpeta, comprimirlo en un `.zip` hace que la transferencia por `scp` sea mucho más rápida (especialmente para ignorar la carpeta `.git` que puede ser pesada).
+Tienes dos opciones dependiendo de si tu servidor tiene acceso a Git o si prefieres subirlo manualmente:
 
-**Desde tu terminal local:**
+#### Opción A: Clonar con Git (Recomendado si hay acceso)
+Si tu servidor tiene acceso al repositorio:
 ```bash
-# Comprime excluyendo archivos de sistema y de git
-zip -r meta-e.zip . -x ".git/*" ".DS_Store" "__pycache__/*"
-```
-
-Súbelo a tu servidor:
-```bash
-scp meta-e.zip usuario@IP_DEL_SERVIDOR:/tmp/
-```
-
-### 2) Instalar en `/opt`
-
-Conéctate por SSH y mueve los archivos a la ubicación definitiva:
-
-```bash
+# Conéctate por SSH
 ssh usuario@IP_DEL_SERVIDOR
 
-# Crear carpeta en /opt y dar permisos
+# Clonar directamente en /opt (necesitarás sudo para la carpeta)
 sudo mkdir -p /opt/meta-e
 sudo chown $USER:$USER /opt/meta-e
+git clone URL_DEL_REPOSITORIO /opt/meta-e
+cd /opt/meta-e
+```
 
-# Descomprimir
+#### Opción B: Subir archivo comprimido (Si no hay acceso a Git)
+Desde tu terminal local:
+```bash
+zip -r meta-e.zip . -x ".git/*" ".DS_Store" "__pycache__/*"
+scp meta-e.zip usuario@IP_DEL_SERVIDOR:/tmp/
+```
+Luego en el servidor:
+```bash
+sudo mkdir -p /opt/meta-e
+sudo chown $USER:$USER /opt/meta-e
 unzip /tmp/meta-e.zip -d /opt/meta-e
 cd /opt/meta-e
 ```
 
-### 3) Ajustar `docker-compose.yml`
+### 2) Ajustar `docker-compose.yml`
 
 Abre el archivo para asegurar la integración con tu red de Traefik:
 
