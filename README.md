@@ -90,7 +90,7 @@ nano docker-compose.yml
 2. **Dominio:** Cambia `Host(`meta.mexicosadecv.com.mx`)` por el tuyo.
 3. **SSL Resolver:** Cambia `certresolver=myresolver` por el tuyo (ej. `letsencrypt`).
 
-### 4) Levantar el servicio
+### 3) Levantar el servicio
 
 Crea el archivo de entorno y lanza el contenedor:
 
@@ -99,7 +99,7 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-### 5) Verificar
+### 4) Verificar
 
 ```bash
 docker compose logs -f
