@@ -18,4 +18,4 @@ COPY . .
 EXPOSE 8000
 
 # Start Gunicorn directly
-CMD ["gunicorn", "-b", "0.0.0.0:8000", "--timeout", "60", "app:app"]
+CMD ["gunicorn", "-b", "0.0.0.0:8000", "--timeout", "300", "app:app"]

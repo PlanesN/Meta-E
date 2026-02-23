@@ -58,6 +58,9 @@ app = Flask(
     static_folder="static",
 )
 
+# Configuración de límite de tamaño (default 50MB)
+app.config['MAX_CONTENT_LENGTH'] = int(os.getenv("MAX_FILE_SIZE_MB", "50")) * 1024 * 1024
+
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
 
