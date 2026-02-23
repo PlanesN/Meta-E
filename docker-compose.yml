@@ -1,0 +1,25 @@
+version: "3.8"
+
+services:
+  metadata-extractor:
+    build: .
+    container_name: metadata-extractor
+    restart: unless-stopped
+    environment:
+      - EXIFTOOL_TIMEOUT_SECONDS=20
+      - GUNICORN_BIND=0.0.0.0:8000
+    labels:
+      - "traefik.enable=true"
+      # Ajusta el dominio si es necesario
+      - "traefik.http.routers.metadata.rule=Host(`meta.mexicosadecv.com.mx`)"
+      - "traefik.http.routers.metadata.entrypoints=websecure"
+      # Cambia "myresolver" por el nombre de tu certificate resolver en Traefik (ej: letsencrypt)
+      - "traefik.http.routers.metadata.tls.certresolver=myresolver"
+      - "traefik.http.services.metadata.loadbalancer.server.port=8000"
+    networks:
+      - traefik-net
+
+networks:
+  # Asegúrate de que esta red coincida con la red externa creada para Traefik
+  traefik-net:
+    external: true

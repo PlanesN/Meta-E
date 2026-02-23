@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Meta-E</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+  <main id="app">
+    <header>
+      <h1>Meta-E</h1>
+      <p class="subtitle">Extractor de metadatos</p>
+    </header>
+
+    <!-- Upload -->
+    <section id="upload-view">
+      <div id="dropzone" tabindex="0" role="button" aria-label="Seleccionar archivo">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="17 8 12 3 7 8"/>
+          <line x1="12" y1="3" x2="12" y2="15"/>
+        </svg>
+        <p>Arrastra un archivo aquí</p>
+        <span class="hint">o haz clic para seleccionar</span>
+        <input type="file" id="file-input" hidden>
+      </div>
+    </section>
+
+    <!-- Results -->
+    <section id="results-view" hidden>
+      <div class="toolbar">
+        <span id="filename" class="filename"></span>
+        <button type="button" id="new-btn" class="link-btn">Nuevo archivo</button>
+      </div>
+
+      <div id="metadata-container"></div>
+
+      <div id="view-actions" class="actions">
+        <button type="button" id="edit-btn" class="btn secondary">Modificar</button>
+        <button type="button" id="download-json-btn" class="btn primary">Descargar JSON</button>
+      </div>
+
+      <div id="edit-actions" class="actions" hidden>
+        <button type="button" id="cancel-edit-btn" class="btn ghost">Cancelar</button>
+        <button type="button" id="save-json-btn" class="btn secondary">Descargar JSON</button>
+        <button type="button" id="save-file-btn" class="btn primary" disabled>Descargar archivo</button>
+      </div>
+    </section>
+
+    <!-- Error toast -->
+    <div id="error-toast" class="toast" hidden>
+      <span id="error-msg"></span>
+      <button type="button" id="dismiss-error" class="toast-close" aria-label="Cerrar">&times;</button>
+    </div>
+
+    <!-- Loading overlay -->
+    <div id="loading" class="loading-overlay" hidden>
+      <div class="spinner"></div>
+    </div>
+  </main>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
