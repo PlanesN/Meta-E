@@ -75,8 +75,11 @@
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Error al extraer metadatos.");
 
-      originalMetadata = data.metadata;
-      editedMetadata = { ...data.metadata };
+      originalMetadata = data.metadata_info;
+      editedMetadata = {};
+      for (const [k, v] of Object.entries(data.metadata_info)) {
+        editedMetadata[k] = v.value;
+      }
       currentFilename = data.filename;
       filenameEl.textContent = currentFilename;
 
@@ -95,7 +98,7 @@
   // --- Render metadata rows ---
   function renderMetadata(editable) {
     metadataContainer.replaceChildren();
-    const entries = Object.entries(editable ? editedMetadata : originalMetadata);
+    const entries = Object.entries(originalMetadata);
 
     if (entries.length === 0) {
       const empty = document.createElement("div");
@@ -105,7 +108,14 @@
       return;
     }
 
-    for (const [key, value] of entries) {
+    const formatVal = (v) => {
+      if (v === null || v === undefined) return "";
+      if (Array.isArray(v)) return v.join(", ");
+      if (typeof v === "object") return JSON.stringify(v);
+      return String(v);
+    };
+
+    for (const [key, info] of entries) {
       const row = document.createElement("div");
       row.className = "meta-row";
 
@@ -116,22 +126,25 @@
       const valueEl = document.createElement("div");
       valueEl.className = "meta-value";
 
-      if (editable && !READONLY_TAGS.has(key)) {
+      const currentValue = editable ? editedMetadata[key] : info.value;
+
+      if (editable && info.writable) {
         const input = document.createElement("input");
         input.type = "text";
         input.className = "meta-input";
-        input.value = String(value ?? "");
+        input.value = formatVal(currentValue);
         input.dataset.key = key;
         input.addEventListener("input", () => {
           editedMetadata[key] = input.value;
-          const modified = String(originalMetadata[key] ?? "") !== input.value;
+          const originalStr = formatVal(info.value);
+          const modified = originalStr !== input.value;
           row.classList.toggle("modified", modified);
           checkChanges();
         });
         valueEl.appendChild(input);
       } else {
-        valueEl.textContent = String(value ?? "");
-        if (READONLY_TAGS.has(key) && editable) {
+        valueEl.textContent = formatVal(currentValue);
+        if (!info.writable && editable) {
           row.classList.add("readonly");
         }
       }
@@ -143,8 +156,14 @@
   }
 
   function checkChanges() {
+    const formatVal = (v) => {
+      if (v === null || v === undefined) return "";
+      if (Array.isArray(v)) return v.join(", ");
+      if (typeof v === "object") return JSON.stringify(v);
+      return String(v);
+    };
     hasChanges = Object.keys(originalMetadata).some(
-      (k) => String(originalMetadata[k] ?? "") !== String(editedMetadata[k] ?? "")
+      (k) => formatVal(originalMetadata[k].value) !== String(editedMetadata[k] ?? "")
     );
     saveFileBtn.disabled = !hasChanges;
   }
@@ -165,7 +184,10 @@
   // --- Edit mode ---
   $("#edit-btn").addEventListener("click", () => {
     isEditing = true;
-    editedMetadata = { ...originalMetadata };
+    editedMetadata = {};
+    for (const [k, v] of Object.entries(originalMetadata)) {
+      editedMetadata[k] = v.value;
+    }
     hasChanges = false;
     saveFileBtn.disabled = true;
     renderMetadata(true);
@@ -192,7 +214,10 @@
 
   // --- Download JSON (client-side) ---
   function downloadJson() {
-    const data = isEditing ? editedMetadata : originalMetadata;
+    const data = {};
+    for (const [k, v] of Object.entries(originalMetadata)) {
+      data[k] = isEditing ? editedMetadata[k] : v.value;
+    }
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -212,16 +237,18 @@
 
     showLoading();
 
-    const changes = {};
+    const segments = {};
     for (const key of Object.keys(editedMetadata)) {
-      if (String(originalMetadata[key] ?? "") !== String(editedMetadata[key] ?? "")) {
-        changes[key] = editedMetadata[key];
+      const info = originalMetadata[key];
+      const isChanged = String(info.value ?? "") !== String(editedMetadata[key] ?? "");
+      if (info.writable && isChanged) {
+        segments[key] = editedMetadata[key];
       }
     }
 
     const form = new FormData();
     form.append("file", currentFile);
-    form.append("metadata", JSON.stringify(changes));
+    form.append("metadata", JSON.stringify(segments));
 
     try {
       const res = await fetch("/api/modify", { method: "POST", body: form });
@@ -232,7 +259,13 @@
       }
 
       if (data.applied.length === 0) {
-        showError("No se pudo modificar ningún campo. Los campos seleccionados no son escribibles para este tipo de archivo.");
+        let errorMsgTxt = "No se pudo modificar ningún campo.";
+        if (data.warnings && data.warnings.length > 0) {
+          errorMsgTxt += " Razones: " + data.warnings.join(" | ");
+        } else {
+          errorMsgTxt += " Los campos seleccionados no son escribibles para este tipo de archivo.";
+        }
+        showError(errorMsgTxt);
         return;
       }
 
@@ -254,13 +287,9 @@
 
       // Show feedback
       if (data.failed.length > 0) {
-        showWarning(
-          data.applied.length + " campo(s) modificado(s). " +
-          data.failed.length + " campo(s) no se pudieron escribir: " +
-          data.failed.join(", ")
-        );
+        showWarning("Se modificaron " + data.applied.length + " campo(s), pero " + data.failed.length + " no se pudieron escribir.");
       } else {
-        showSuccess(data.applied.length + " campo(s) modificado(s) correctamente.");
+        showSuccess("Archivo modificado correctamente.");
       }
     } catch (err) {
       showError(err.message);

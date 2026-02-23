@@ -17,13 +17,39 @@ EXIFTOOL_TIMEOUT = int(os.getenv("EXIFTOOL_TIMEOUT_SECONDS", "20"))
 
 NON_WRITABLE_TAGS = frozenset({
     "SourceFile", "Directory", "FileName", "FileSize",
-    "FileModifyDate", "FileAccessDate", "FileInodeChangeDate",
+    "FileAccessDate", "FileInodeChangeDate",
     "FilePermissions", "FileType", "FileTypeExtension",
     "MIMEType", "ExifToolVersion", "ExifByteOrder",
     "EncodingProcess", "BitsPerSample", "ColorComponents",
     "YCbCrSubSampling", "ImageWidth", "ImageHeight",
     "ImageSize", "Megapixels",
 })
+
+# Tags that we want to allow editing even if ExifTool -listw doesn't explicitly 
+# list them in a specific group, as they usually map to XMP or standard chunks.
+LEME_COMMON_TAGS = {
+    "Artist", "Author", "Title", "Description", "Subject", "Keywords", 
+    "Copyright", "Creator", "Comment", "UserComment", "DateTimeOriginal",
+    "CreateDate", "ModifyDate"
+}
+
+_WRITABLE_TAGS_CACHE = None
+
+def get_writable_tags() -> set:
+    global _WRITABLE_TAGS_CACHE
+    if _WRITABLE_TAGS_CACHE is not None:
+        return _WRITABLE_TAGS_CACHE
+    
+    try:
+        path = _find_exiftool()
+        result = subprocess.run([path, "-listw"], capture_output=True, text=True, check=True)
+        # Output is a space-separated list of tags
+        tags = set(result.stdout.split())
+        _WRITABLE_TAGS_CACHE = tags
+        return tags
+    except Exception as e:
+        logger.error(f"Error fetching writable tags: {e}")
+        return set()
 
 app = Flask(
     __name__,
@@ -44,7 +70,8 @@ def _find_exiftool() -> str:
 
 
 def run_exiftool(file_path: str) -> dict:
-    command = [_find_exiftool(), "-j", file_path]
+    # Adding -s to get Tag Names (IDs) instead of descriptions
+    command = [_find_exiftool(), "-j", "-s", file_path]
     try:
         result = subprocess.run(
             command, capture_output=True, text=True,
@@ -65,30 +92,40 @@ def run_exiftool(file_path: str) -> dict:
 
 
 def write_exiftool(file_path: str, metadata: dict) -> dict:
-    """Write metadata and verify. Returns {applied: [...], failed: [...]}."""
+    """Write metadata and verify. Returns {applied: [...], failed: [...], warnings: [...]}. Maryland"""
     tags_to_write = {
         k: v for k, v in metadata.items() if k not in NON_WRITABLE_TAGS
     }
     if not tags_to_write:
-        return {"applied": [], "failed": list(metadata.keys())}
+        return {
+            "applied": [],
+            "failed": list(metadata.keys()),
+            "warnings": ["Todos los campos seleccionados son de solo lectura."]
+        }
 
     command = [_find_exiftool(), "-overwrite_original"]
     for tag, value in tags_to_write.items():
         command.append(f"-{tag}={value}")
     command.append(file_path)
 
+    warnings = []
     try:
         result = subprocess.run(
             command, capture_output=True, text=True,
             check=False, timeout=EXIFTOOL_TIMEOUT,
         )
+        if result.stderr:
+            # Exiftool warnings usually start with "Warning: "
+            for line in result.stderr.splitlines():
+                if line.strip():
+                    warnings.append(line.strip())
+                    logger.debug("ExifTool write info: %s", line.strip())
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError("La escritura de metadatos tardó demasiado.") from exc
 
     if result.returncode > 1:
+        # Errors (return code > 1) are treated as fatal for that operation
         raise RuntimeError(result.stderr.strip() or "Error al escribir metadatos.")
-    if result.stderr.strip():
-        logger.info("ExifTool write info: %s", result.stderr.strip())
 
     # Verify by re-reading metadata
     new_metadata = run_exiftool(file_path)
@@ -96,17 +133,31 @@ def write_exiftool(file_path: str, metadata: dict) -> dict:
     failed = []
     for tag, requested_value in tags_to_write.items():
         actual = str(new_metadata.get(tag, ""))
+        # Some tags might be partially modified or formatted differently, 
+        # but let's stick to simple comparison or check if tag exists if it didn't before
         if actual == str(requested_value):
             applied.append(tag)
         else:
+            # If it's not exactly the same, it might still have been written but formatted
+            # but usually for the user, if it doesn't match what they put, it's a "failure" 
+            # or at least worth noting.
             failed.append(tag)
 
-    # Tags filtered by NON_WRITABLE_TAGS
+    # Tags filtered by NON_WRITABLE_TAGS or not in writable list
+    writable_list = get_writable_tags()
     for tag in metadata:
-        if tag in NON_WRITABLE_TAGS and tag not in failed:
+        # Check if the tag is writable. We check the base tag (without group prefix)
+        base_tag = tag.split(":")[-1]
+        is_writable = (
+            base_tag in writable_list or 
+            tag in writable_list or 
+            base_tag in LEME_COMMON_TAGS
+        )
+        
+        if (tag in NON_WRITABLE_TAGS or not is_writable) and tag not in failed:
             failed.append(tag)
 
-    return {"applied": applied, "failed": failed}
+    return {"applied": applied, "failed": failed, "warnings": warnings}
 
 
 @app.after_request
@@ -141,7 +192,34 @@ def api_extract():
             temp_path = f.name
         upload.save(temp_path)
         metadata = run_exiftool(temp_path)
-        return jsonify({"metadata": metadata, "filename": safe_name})
+        writable_tags = get_writable_tags()
+        
+        # Determine writability for each tag
+        metadata_info = {}
+        for k, v in metadata.items():
+            base_tag = k.split(":")[-1]
+            is_writable = (
+                (base_tag in writable_tags or k in writable_tags or base_tag in LEME_COMMON_TAGS) 
+                and k not in NON_WRITABLE_TAGS
+            )
+            
+            metadata_info[k] = {
+                "value": v,
+                "writable": is_writable
+            }
+
+        # Inject common tags if they are missing
+        for common_tag in LEME_COMMON_TAGS:
+            if common_tag not in metadata_info:
+                metadata_info[common_tag] = {
+                    "value": "",
+                    "writable": True
+                }
+
+        return jsonify({
+            "metadata_info": metadata_info,
+            "filename": safe_name
+        })
     except Exception as exc:
         logger.exception("Error extracting metadata from '%s'", safe_name)
         return jsonify({"error": str(exc)}), 500
@@ -185,6 +263,7 @@ def api_modify():
             "filename": safe_name,
             "applied": result["applied"],
             "failed": result["failed"],
+            "warnings": result.get("warnings", []),
         })
     except Exception as exc:
         logger.exception("Error modifying metadata for '%s'", safe_name)
