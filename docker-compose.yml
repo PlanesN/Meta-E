@@ -18,8 +18,3 @@ services:
       - "traefik.http.services.metadata.loadbalancer.server.port=8000"
     networks:
       - traefik-net
-
-networks:
-  # Asegúrate de que esta red coincida con la red externa creada para Traefik
-  traefik-net:
-    external: true
